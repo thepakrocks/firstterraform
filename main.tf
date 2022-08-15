@@ -22,25 +22,69 @@ locals {
 }
 
 
+data "azurerm_subnet" "SubnetA" {
+  name                 = "SubnetA"
+  virtual_network_name = "app-network"
+  resource_group_name  = local.resource_group
+}
+
 resource "azurerm_resource_group" "app_grp"{
   name=local.resource_group
   location=local.location
 }
 
-resource "azurerm_app_service_plan" "app_plan1000" {
-  name                = "app-plan1000"
-  location            = azurerm_resource_group.app_grp.location
+resource "azurerm_virtual_network" "app_network" {
+  name                = "app-network"
+  location            = local.location
   resource_group_name = azurerm_resource_group.app_grp.name
+  address_space       = ["10.0.0.0/16"]
 
-  sku {
-    tier = "Basic"
-    size = "B1"
-  }
+  subnet {
+    name           = "SubnetA"
+    address_prefix = "10.0.1.0/24"
+  }  
 }
 
-resource "azurerm_app_service" "webapp" {
-  name                = "webapp2530050"
-  location            = azurerm_resource_group.app_grp.location
-  resource_group_name = azurerm_resource_group.app_grp.name
-  app_service_plan_id = azurerm_app_service_plan.app_plan1000.id
+resource "azurerm_network_interface" "app_interface" {
+  name                = "app-interface"
+  location            = local.location
+  resource_group_name = local.resource_group
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = data.azurerm_subnet.SubnetA.id
+    private_ip_address_allocation = "Dynamic"
+  }
+
+  depends_on = [
+    azurerm_virtual_network.app_network
+  ]
+}
+
+resource "azurerm_windows_virtual_machine" "app_vm" {
+  name                = "appvm"
+  resource_group_name = local.resource_group
+  location            = local.location
+  size                = "Standard_D2s_v3"
+  admin_username      = "demousr"
+  admin_password      = "Azure@123"
+  network_interface_ids = [
+    azurerm_network_interface.app_interface.id,
+  ]
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "MicrosoftWindowsServer"
+    offer     = "WindowsServer"
+    sku       = "2019-Datacenter"
+    version   = "latest"
+  }
+
+  depends_on = [
+    azurerm_network_interface.app_interface
+  ]
 }
